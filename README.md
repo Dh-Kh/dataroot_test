@@ -20,7 +20,7 @@ Please remember that it must be possible to send any number of tasks to the proc
 
 ### API Endpoints
 
-1. **Chatting –** `/api/v1/chat`    
+1. **Chatting – `/api/v1/chat`**    
     The POST endpoint aims to accept textual requests, query the OpenAI API (ChatGPT) using custom predesigned prompt to generate a response, save the utterance pair to redis and return the response.    
 
     Body Format:  
