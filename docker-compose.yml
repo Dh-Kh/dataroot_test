@@ -1,0 +1,20 @@
+version: '3'
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: .docker/worker.Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./:/app
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  # todo: add background task service
