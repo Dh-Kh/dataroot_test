@@ -2,7 +2,7 @@
 ### Description
 
 The task is to create an application with an API (like Flask or FastAPI) that contains three endpoints and a background task processor.    
-The application must allow users to converse with ChatGPT. The conversation history should be saved into the Redis database using the session_id key. When the user ends the conversation, he should be able to run a background task using a separate endpoint. The background task must save the dialog into a Google Doc. The user should also be able to get the status of the initiated task.   
+The application must allow users to converse with ChatGPT. The conversation history should be saved into the Redis database using the `session_id` key. When the user ends the conversation, he should be able to run a background task using a separate endpoint. The background task must save the dialog into a Google Doc. The user should also be able to get the status of the initiated task.   
 
 ### Deliverables
 
@@ -15,7 +15,7 @@ The docker-compose must include the following services:
 
 ### **Background Task**
 
-When the user posts a request with a session_id, the background processor must extract the corresponding dialog from the Redis database, create a new Google document (named by session_id), move it to the folder with dialogs, and write the prettified dialog into the document.
+When the user posts a request with a session_id, the background processor must extract the corresponding dialog from the Redis database, create a new Google document (named by `session_id`), move it to the folder with dialogs, and write the prettified dialog into the document.
 Please remember that it must be possible to send any number of tasks to the processing route at any time. You should manage them, not miss any, and have valid statuses for each task. You decide on the tools and architecture of the background processing approaches, status storage, API framework, libraries, and LLM.    
 
 ### API Endpoints
