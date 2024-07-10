@@ -1,10 +1,16 @@
-from fastapi import FastAPI
+from fastapi import APIRouter
+from dotenv import load_dotenv
+from langchain.prompts import PromptTemplate
+from langchain.llms.openai import OpenAI
+import os
 
+load_dotenv()
 
-app = FastAPI()
+OPEN_AI_KEY = os.getenv("OPEN_AI_KEY")
 
+router = APIRouter()
 
-@app.post("/api/v1/chat")
+@router.post("/api/v1/chat")
 def chat(session_id: str, text: str):
     """
     The API route to communicate with the ChatGPT. The chat history for different session IDs must be stored in the
@@ -21,7 +27,7 @@ def chat(session_id: str, text: str):
     return {"bot_text": ...}, 200
 
 
-@app.post("/api/v1/write_to_doc")
+@router.post("/api/v1/write_to_doc")
 def write_to_doc(session_id: str):
     """
     Accepts request and launches a task to write the conversation history with the given identifier to the Google Docs.
@@ -32,7 +38,7 @@ def write_to_doc(session_id: str):
     return {"task_id": ...}, 200
 
 
-@app.get("/api/v1/status/<task_id>")
+@router.get("/api/v1/status/<task_id>")
 def status(task_id: str):
     """
     Check the status of the background task. It should receive a task_id and return the status of the task. The task
@@ -46,6 +52,6 @@ def status(task_id: str):
     return {"status": ...}, 200
 
 
-@app.get("/-/healthy/")
+@router.get("/-/healthy/")
 def healthy():
     return {}, 200
