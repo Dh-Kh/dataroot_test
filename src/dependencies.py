@@ -9,7 +9,7 @@ from uuid import UUID
 
 
 class SessionData(BaseModel):
-    session_id: str
+   data: str
     
 cookie_params = CookieParameters()
 
@@ -25,6 +25,8 @@ backend = InMemoryBackend[UUID, SessionData]()
 
 
 class BasicVerifier(SessionVerifier[UUID, SessionData]):
+    
+    """write docs"""
     
     def __init__(
             self,
