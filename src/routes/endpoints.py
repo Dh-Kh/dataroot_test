@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Response, Depends
+from fastapi import APIRouter, Response, Depends, BackgroundTasks
 from fastapi.responses import JSONResponse, RedirectResponse
 from dotenv import load_dotenv
 from langchain.prompts import PromptTemplate
-from langchain.llms.openai import OpenAI
-from ..dependencies import (verifier, backend, SessionData, cookie)
+from langchain.chains import LLMChain
+from langchain.chat_models import ChatOpenAI  
+from ..utils.sessions import (verifier, backend, SessionData, cookie)
+from ..utils.writer import Writer
 from uuid import uuid4, UUID
+from ..connectors.redis import RedisConnector
 import os
 
 load_dotenv()
@@ -12,8 +15,6 @@ load_dotenv()
 OPEN_AI_KEY = os.getenv("OPEN_AI_KEY")
 
 router = APIRouter()
-
-"""write docs for each endpoint"""
 
 @router.post("/api/v1/create_session/{session_data}")
 async def create_session(session_data: str, response: Response):
@@ -43,47 +44,96 @@ async def delete_session(response: Response, session_uuid: UUID = Depends(cookie
 
 @router.post("/api/v1/chat")
 async def chat(text: str, session_data: SessionData = Depends(verifier)):
+
+    """
+    A temperature between 0.5 and 1.0 is a good balance between randomness and predictability.
+    """
     
-    """
-    The API route to communicate with the ChatGPT. The chat history for different session IDs must be stored in the
-    Redis database.
+    redis_connector = RedisConnector()
+        
+    llm = ChatOpenAI(
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
+        temperature=0.5
+    )
+    
+    prompt_template = PromptTemplate(
+        input_variables=["history", "text"],
+        template="""You are a helpful assistant. The following is the conversation history:
+            {history}
+            Human: {text}
+            Assistant:"""
+    )
+        
+        
+    llm_chain = LLMChain(llm=llm, prompt=prompt_template)
+    
+    chat_history = redis_connector.get_from_redis(session_data) or []
+    
+    chat_history.append({"role": "user", "data": text})
+    
+    model_answer = llm_chain.invoke({"history": chat_history, "text": text})["text"]
+    
+    chat_history.append({"role": "AI", "data": model_answer})
+    
+    redis_connector.insert_into_redis(session_data, chat_history)
+    
 
-    :param session_id: str
-        Session identifier to keep track of the conversation.
-    :param text: str
-        User input text
-
-    :return: bot response
-    """
-
-    return {"bot_text": ...}, 200
+    return JSONResponse(content={
+        "AI TEXT": model_answer
+        }, status_code=200)
 
 
 @router.post("/api/v1/write_to_doc")
-def write_to_doc(session_id: str):
-    """
-    Accepts request and launches a task to write the conversation history with the given identifier to the Google Docs.
+async def write_to_doc(session_data: str, background_task: BackgroundTasks):
+    
+    redis_connector = RedisConnector()
+        
+    writer = Writer(session_data=session_data)
 
-    :return: task_id of the background task that was started
-    """
+    redis_connector.set_task_status(session_data, "pending")
+    
+    try:
+        
+        redis_connector.set_task_status(session_data, "running")
 
-    return {"task_id": ...}, 200
+        background_task.add_task(writer.write_to_doc, redis_connector)
+        
+    except Exception as e:
+        
+        print(e)
+        
+        redis_connector.set_task_status(session_data, "failed")
+        
+        return JSONResponse(content={
+            "task_id": "Not executed"
+            }, status_code=500
+        )
+    
+    redis_connector.set_task_status(session_data, "finished")
+    
+    return JSONResponse(content={
+        "task_id": session_data
+        }, status_code=200)
+
 
 
 @router.get("/api/v1/status/<task_id>")
-def status(task_id: str):
-    """
-    Check the status of the background task. It should receive a task_id and return the status of the task. The task
-    can have four possible statuses: pending, running, finished, or failed.
+async def status(task_id: str):
+    
+    redis_connector = RedisConnector()
 
-    :param task_id: str
+    status = redis_connector.get_task_status(task_id)
+   
+    return JSONResponse(content={
+        "status": status
+    }, status_code=200)
 
-    :return: status of the background task (pending, running, finished, or failed)
-    """
-
-    return {"status": ...}, 200
 
 
 @router.get("/-/healthy/")
 def healthy():
     return {}, 200
+
+@router.exception_handler(404)
+async def custom_404_handler(_, __):
+    return RedirectResponse("/-/healthy/")
