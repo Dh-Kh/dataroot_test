@@ -1,9 +1,14 @@
 from fastapi import FastAPI
-from .routes import endpoints
+from fastapi.responses import RedirectResponse
+from routes import endpoints
 
 app = FastAPI()
 
 app.include_router(endpoints.router)
+
+@app.exception_handler(404)
+async def custom_404_handler(_, __):
+    return RedirectResponse(url="/docs")
 
 if __name__ == "__main__":
     import uvicorn

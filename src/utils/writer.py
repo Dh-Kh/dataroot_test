@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google_auth_oauthlib.flow import InstalledAppFlow
-from ..connectors.redis import RedisConnector
+from connectors.redis_connector import RedisConnector
 from typing import Type
 from pathlib import Path
 import os
@@ -25,11 +25,18 @@ class Writer(object):
         file_path = Path(__file__).parent.parent / "token.pickle"
         
         if os.path.exists(file_path):
+           
             with open('token.pickle','rb') as token:
                 creds = pickle.load(token)
         else:
-            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', GOOGLE_SCOPES)
+            
+            cred_path = Path(__file__).parent.parent / "credentials.json"
+            
+            
+            flow = InstalledAppFlow.from_client_secrets_file(cred_path, GOOGLE_SCOPES)
+            
             creds = flow.run_local_server(port=0)
+            
             with open('token.pickle','wb') as token:
                 pickle.dump(creds, token)
         

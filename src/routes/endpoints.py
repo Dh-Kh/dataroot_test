@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Response, Depends, BackgroundTasks
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain.chat_models import ChatOpenAI  
-from ..utils.sessions import (verifier, backend, SessionData, cookie)
-from ..utils.writer import Writer
+from utils.sessions import (verifier, backend, SessionData, cookie)
+from utils.writer import Writer
 from uuid import uuid4, UUID
-from ..connectors.redis import RedisConnector
+from connectors.redis_connector import RedisConnector
 import os
 
 load_dotenv()
@@ -17,20 +18,18 @@ OPEN_AI_KEY = os.getenv("OPEN_AI_KEY")
 router = APIRouter()
 
 @router.post("/api/v1/create_session/{session_data}")
-async def create_session(session_data: str, response: Response):
+async def create_session(data: str, response: Response):
     
     session = uuid4()
     
-    data = SessionData(session_data=session_data)
+    data = SessionData(data=data)
     
     await backend.create(session, data)
     
     cookie.attach_to_response(response, session)
     
-    return JSONResponse(content={
-        "user session": data
-        }, status_code=200)
-    
+    return JSONResponse(content={"user session": jsonable_encoder(data)}, status_code=200)
+
 @router.post("/api/v1/delete_session")
 async def delete_session(response: Response, session_uuid: UUID = Depends(cookie)):
     
@@ -38,9 +37,16 @@ async def delete_session(response: Response, session_uuid: UUID = Depends(cookie
     
     cookie.delete_from_response(response)
     
-    return JSONResponse(content={
-        "result": "Session has been deleted!"
-        }, status_code=204)
+    return JSONResponse(content={"result": "Session has been deleted!"}, status_code=204)
+
+@router.get("/api/v1/user_info", dependencies=[Depends(cookie)])
+async def user_info(session_data: SessionData = Depends(verifier)):
+    
+    return JSONResponse(
+        content={"user_info": jsonable_encoder(session_data)}, 
+        status_code=200
+    )
+
 
 @router.post("/api/v1/chat")
 async def chat(text: str, session_data: SessionData = Depends(verifier)):
@@ -130,10 +136,3 @@ async def status(task_id: str):
 
 
 
-@router.get("/-/healthy/")
-def healthy():
-    return {}, 200
-
-@router.exception_handler(404)
-async def custom_404_handler(_, __):
-    return RedirectResponse("/-/healthy/")
