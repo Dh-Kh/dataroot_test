@@ -1,10 +1,11 @@
 from typing import Any, Sequence, Union
 from dotenv import load_dotenv
+from pathlib import Path
 import redis
 import json
 import os
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
 

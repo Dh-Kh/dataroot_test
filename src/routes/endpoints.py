@@ -1,55 +1,65 @@
-from fastapi import APIRouter, Response, Depends, BackgroundTasks
-from fastapi.encoders import jsonable_encoder
+from fastapi import APIRouter,  Request, Response
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
-from langchain.chat_models import ChatOpenAI  
-from utils.sessions import (verifier, backend, SessionData, cookie)
+from langchain_community.chat_models import ChatOpenAI
 from utils.writer import Writer
-from uuid import uuid4, UUID
 from connectors.redis_connector import RedisConnector
+from pathlib import Path
 import os
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
-OPEN_AI_KEY = os.getenv("OPEN_AI_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 router = APIRouter()
 
-@router.post("/api/v1/create_session/{session_data}")
-async def create_session(data: str, response: Response):
+@router.post("/api/v1/create_session/{session_id}")
+async def create_session(request: Request, session_id: str):
     
-    session = uuid4()
+    request.session["session_id"] = session_id
     
-    data = SessionData(data=data)
-    
-    await backend.create(session, data)
-    
-    cookie.attach_to_response(response, session)
-    
-    return JSONResponse(content={"user session": jsonable_encoder(data)}, status_code=200)
+    return JSONResponse(content={"user session": session_id}, status_code=200)
 
 @router.post("/api/v1/delete_session")
-async def delete_session(response: Response, session_uuid: UUID = Depends(cookie)):
+async def delete_session(request: Request, response: Response):
     
-    await backend.delete(session_uuid)
-    
-    cookie.delete_from_response(response)
-    
-    return JSONResponse(content={"result": "Session has been deleted!"}, status_code=204)
+    if "session_id" in request.session:
 
-@router.get("/api/v1/user_info", dependencies=[Depends(cookie)])
-async def user_info(session_data: SessionData = Depends(verifier)):
+        del request.session["session_id"]
+        
+        response.status_code = 204
+        
+        return response
     
-    return JSONResponse(
-        content={"user_info": jsonable_encoder(session_data)}, 
-        status_code=200
-    )
+    else:
+        
+        return JSONResponse(content={"session_id": "Not found"}, status_code=404)
+        
 
+@router.get("/api/v1/session_info")
+async def user_info(request: Request):
+    
+    session_id = request.session.get("session_id")
+
+    if session_id:
+    
+        return JSONResponse(
+            content={"session_info": session_id},
+            status_code=200
+        )
+    
+    else:
+        
+        return JSONResponse(
+            content={"session_info": "Not found"},
+            status_code=404
+            )
+    
 
 @router.post("/api/v1/chat")
-async def chat(text: str, session_data: SessionData = Depends(verifier)):
+async def chat(user_text: str, request: Request):
 
     """
     A temperature between 0.5 and 1.0 is a good balance between randomness and predictability.
@@ -58,7 +68,7 @@ async def chat(text: str, session_data: SessionData = Depends(verifier)):
     redis_connector = RedisConnector()
         
     llm = ChatOpenAI(
-        openai_api_key=os.getenv("OPENAI_API_KEY"),
+        openai_api_key=OPENAI_API_KEY,
         temperature=0.5
     )
     
@@ -73,53 +83,81 @@ async def chat(text: str, session_data: SessionData = Depends(verifier)):
         
     llm_chain = LLMChain(llm=llm, prompt=prompt_template)
     
-    chat_history = redis_connector.get_from_redis(session_data) or []
-    
-    chat_history.append({"role": "user", "data": text})
-    
-    model_answer = llm_chain.invoke({"history": chat_history, "text": text})["text"]
-    
-    chat_history.append({"role": "AI", "data": model_answer})
-    
-    redis_connector.insert_into_redis(session_data, chat_history)
-    
+    session_id = request.session.get("session_id")
+        
+    if session_id:
+        
+        session_info = f"{session_id}_chat"
 
-    return JSONResponse(content={
-        "AI TEXT": model_answer
-        }, status_code=200)
-
-
-@router.post("/api/v1/write_to_doc")
-async def write_to_doc(session_data: str, background_task: BackgroundTasks):
     
-    redis_connector = RedisConnector()
-        
-    writer = Writer(session_data=session_data)
-
-    redis_connector.set_task_status(session_data, "pending")
+        chat_history = redis_connector.get_from_redis(session_info) or []
     
-    try:
+        chat_history.append({"role": "user", "data": user_text})
+    
+        model_answer = llm_chain.invoke({"history": chat_history, "text": user_text})["text"]
+    
+        chat_history.append({"role": "AI", "data": model_answer})
+    
+        redis_connector.insert_into_redis(session_info, chat_history)
+    
+        if model_answer:
+            return JSONResponse(content={
+                "bot_text": model_answer
+            }, status_code=200)
+   
+    else:
         
-        redis_connector.set_task_status(session_data, "running")
-
-        background_task.add_task(writer.write_to_doc, redis_connector)
-        
-    except Exception as e:
-        
-        print(e)
-        
-        redis_connector.set_task_status(session_data, "failed")
-        
-        return JSONResponse(content={
-            "task_id": "Not executed"
-            }, status_code=500
+        return JSONResponse(
+            content={"session_info": "Not found"},
+            status_code=404
         )
+
+
+
+@router.get("/api/v1/write_to_doc")
+async def write_to_doc(request: Request):
     
-    redis_connector.set_task_status(session_data, "finished")
+    session_id = request.session.get("session_id")
+        
+    if session_id:
+        
+        session_info = f"{session_id}_status"
+        
+        redis_connector = RedisConnector()
+        
+        writer = Writer(session_data=f"{session_id}_chat")
+
+        redis_connector.set_task_status(session_info, "pending")
     
-    return JSONResponse(content={
-        "task_id": session_data
+        try:
+        
+            redis_connector.set_task_status(session_info, "running")
+
+            writer.write_to_doc(redis_connector)
+        
+        except Exception as e:
+        
+            print(e)
+        
+            redis_connector.set_task_status(session_info, "failed")
+        
+            return JSONResponse(content={
+                "task_id": "Not executed"
+            }, status_code=400)
+                
+    
+        redis_connector.set_task_status(session_info, "finished")
+    
+        return JSONResponse(content={
+            "task_id": session_info
         }, status_code=200)
+    
+    else:
+        
+        return JSONResponse(
+            content={"session_info": "Not found"},
+            status_code=404
+        )
 
 
 
@@ -130,9 +168,13 @@ async def status(task_id: str):
 
     status = redis_connector.get_task_status(task_id)
    
+    if not status:
+        return JSONResponse(
+            content={"status": "Not found"},
+            status_code=404
+        )
+
     return JSONResponse(content={
         "status": status
     }, status_code=200)
-
-
 
